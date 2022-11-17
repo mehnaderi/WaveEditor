@@ -16,3 +16,7 @@ pip install PyAudio
 ##### Running app
 Run main.py to open app
 
+This app is still under development ...
+
+
+
