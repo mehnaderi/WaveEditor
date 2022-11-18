@@ -1,4 +1,6 @@
 from enum import Enum
+
+from scipy.fft import rfft
 from scipy.fftpack import fft, ifft
 import numpy as np
 import math
@@ -72,7 +74,7 @@ class SignalProcessor:
 
     @staticmethod
     def computeMagnitudeOfSpectrum(frame):
-        fftResult = fft(frame)
+        fftResult = rfft(frame)
 
         fftResult = 20 * np.log(np.abs(fftResult))
 

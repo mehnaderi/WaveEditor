@@ -66,6 +66,7 @@ class AudioController:
         self.current = float(0)
         self.totalTimeFloatCounter = float(0)
         self.updateTotalTime(0)
+        # self.spectrogramWidget.clear()
 
     def action(self, actionName):
         # Load New Wav File :
@@ -214,22 +215,27 @@ class AudioController:
             input=True,
             frames_per_buffer=self.p_chunk
         )
+        # self.spectrogramWidget.build()
         self.updateCurrentTime(0)
 
         # Save frames and update UI
         while self.status == Status.RECORDING:
             # Read frames
-            data = self.stream.read(self.p_chunk)
+            data = self.stream.read(self.p_chunk, exception_on_overflow=False)
             self.chunkList.append(data)
             self.signalData.extend(data)
+
             if self.widthBytes == 1:
                 npData = np.frombuffer(data, dtype=np.int8)
+                # self.spectrogramWidget.update(np.frombuffer(data, dtype=np.int8))
                 self.updateWaveForm(npData)
             if self.widthBytes == 2:
                 npData = np.frombuffer(data, dtype=np.int16)
+                # self.spectrogramWidget.update(np.frombuffer(data, dtype=np.int16))
                 self.updateWaveForm(npData)
             if self.widthBytes == 4:
                 npData = np.frombuffer(data, dtype=np.int32)
+                # self.spectrogramWidget.update(np.frombuffer(data, dtype=np.int32))
                 self.updateWaveForm(npData)
             # self.updateSpectrogram(data)
 
@@ -332,6 +338,7 @@ class AudioController:
         self.totalTimeValue = int(wf.getnframes() / float(self.p_frequency_sampling))
         self.updateTotalTime(self.totalTimeValue)
 
+        # self.spectrogramWidget.build()
         tempBuffer = list()
         self.signalData.extend(signalData)
         while data != b'':
@@ -339,10 +346,13 @@ class AudioController:
             data = wf.readframes(self.p_chunk)
             if self.widthBytes == 1:
                 tempBuffer.extend(np.frombuffer(data, dtype=np.int8))
+                # self.spectrogramWidget.update(np.frombuffer(data, dtype=np.int8))
             if self.widthBytes == 2:
                 tempBuffer.extend(np.frombuffer(data, dtype=np.int16))
+                # self.spectrogramWidget.update(np.frombuffer(data, dtype=np.int16))
             if self.widthBytes == 3:
                 tempBuffer.extend(np.frombuffer(data, dtype=np.int32))
+                # self.spectrogramWidget.update(np.frombuffer(data, dtype=np.int32))
 
         # plot_b.specgram(tempBuffer, NFFT=1024, Fs=self.p_frequency_sampling, noverlap=900)
         # plot_b.set_xlabel('Time')

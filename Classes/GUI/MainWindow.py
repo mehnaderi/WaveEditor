@@ -1,5 +1,4 @@
 import numpy as np
-import pyaudio
 from PyQt5 import QtCore
 from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QIcon
@@ -7,8 +6,9 @@ from PyQt5.QtWidgets import QMainWindow, QPushButton, QLineEdit, QVBoxLayout, QL
 import PyQt5.QtGui as QtGui
 import pyqtgraph as pg
 from Classes.Audio.AudioManager import AudioController, Action
-from Classes.Audio import SignalProcessor
 from Classes.GUI.ProcessorWindow import ProcessorWindow
+from matplotlib import cm
+
 
 # Subclass QMainWindow to customize your application's main window
 class MainWindow(QMainWindow):
@@ -34,7 +34,6 @@ class MainWindow(QMainWindow):
         mainBox = QVBoxLayout()
         mainBox.addWidget(self.plotWaveForm())
         mainBox.addWidget(self.plotSpectrogram())
-        mainBox.addWidget(self.processorWidget())
         mainBox.setContentsMargins(5, 5, 5, 5)
         mainBox.setSpacing(5)
         widget = QWidget()
@@ -68,6 +67,7 @@ class MainWindow(QMainWindow):
         sidebar.addWidget(self.getFrequencyLayout(), 1)
         sidebar.addWidget(self.initBitsPerSampleLabel(), 1)
         sidebar.addWidget(self.getBitsPerSampleLayout(), 1)
+        sidebar.addWidget(self.processorWidget())
         sidebar.addWidget(QWidget(), 1)
         sidebar.addWidget(QWidget(), 1)
         sidebar.addWidget(self.setVoiceControllers(), 1)
@@ -219,9 +219,6 @@ class MainWindow(QMainWindow):
         bitsPerSample = int(self.bitsPerSampleET.text())
         fs = int(self.frequencySamplingET.text())
 
-        # if bitsPerSample == 8 or bitsPerSample == 16:
-        #     self.setBitsPerSample(bitsPerSample)
-        # else:
         self.setBitsPerSample(bitsPerSample)
 
         if 8000 <= fs <= 32000:
@@ -361,13 +358,12 @@ class MainWindow(QMainWindow):
         return self.waveFormWidget
 
     def plotSpectrogram(self):
-        self.spectrogramWidget = pg.PlotWidget()
+        self.spectrogramWidget = SpectrogramWidget()
         styles = {'color': 'black', 'font-size': '14px'}
         self.spectrogramWidget.showGrid(x=True, y=True)
-        self.spectrogramWidget.setLabel('left', 'Frequency (Hz)', **styles)
-        self.spectrogramWidget.setLabel('bottom', 'Time (s)', **styles)
+        self.spectrogramWidget.setLabel('left', 'Frequency', units='Hz', **styles)
+        self.spectrogramWidget.setLabel('bottom', 'Time', **styles)
         self.spectrogramWidget.setBackground("#FFFFFF")
-        # self.spectrogramWidget
 
         self.audioManager.setSpectrogramWidget(self.spectrogramWidget)
         return self.spectrogramWidget
@@ -383,52 +379,50 @@ class MainWindow(QMainWindow):
         self.audioManager.p_format = self.audioManager.pa.get_format_from_width(width, False)
 
 class SpectrogramWidget(pg.PlotWidget):
-
     read_collected = QtCore.pyqtSignal(np.ndarray)
-
-    def __init__(self, audioManager):
+    counter = 0
+    def __init__(self):
         super(SpectrogramWidget, self).__init__()
+        self.chunk = 4096
+        self.fs = 16000
 
-        self.audioManager = audioManager
+
+    def build(self):
         self.img = pg.ImageItem()
         self.addItem(self.img)
 
-        self.img_array = np.zeros((1000, int(self.audioManager.p_chunk / 2 + 1)))
-
-        # bipolar colormap
-        pos = np.array([0., 1., 0.5, 0.25, 0.75])
-        color = np.array(
-            [[0, 255, 255, 255], [255, 255, 0, 255], [0, 0, 0, 255], (0, 0, 255, 255), (255, 0, 0, 255)],
-            dtype=np.ubyte)
-        cmap = pg.ColorMap(pos, color)
-        lut = cmap.getLookupTable(0.0, 1.0, 256)
+        self.img_array = np.full((1000, int(self.chunk)), 255)
+        # colormap
+        colormap = cm.get_cmap("CMRmap")
+        colormap._init()
+        lut = (colormap._lut * 255).view(np.ndarray)
 
         # set colormap
         self.img.setLookupTable(lut)
-        self.img.setLevels([-50, 40])
-
-        # setup the correct scaling for y-axis
-        freq = np.arange((self.audioManager.p_chunk / 2) + 1) / (float(self.audioManager.p_chunk) / self.audioManager.p_frequency_sampling)
-        yscale = 1.0 / (self.img_array.shape[1] / freq[-1])
-        # self.img.scale((1. / self.audioManager.p_frequency_sampling) * self.audioManager.p_chunk, yscale)
-
-        self.setLabel('left', 'Frequency', units='Hz')
+        self.img.setLevels([-0, 75])
 
         # prepare window for later use
-        self.win = np.hanning(self.audioManager.p_chunk)
+        self.win = np.hanning(self.chunk)
         self.show()
 
     def update(self, chunk):
         # normalized, windowed frequencies in data chunk
-        spec = np.fft.rfft(chunk * self.win) / self.audioManager.p_chunk
+        spec = np.fft.rfft(chunk * self.win) / self.chunk
+        print(len(chunk))
         # get magnitude
         psd = abs(spec)
         # convert to dB scale
         psd = 20 * np.log10(psd)
+        psd = self.pad_or_truncate(psd, 4096)
 
-        # roll down one and replace leading edge with new data
-        self.img_array = np.roll(self.img_array, -1, 0)
-        self.img_array[-1:] = psd
+        self.img_array[self.counter:] = psd
+        self.counter += 1
 
         self.img.setImage(self.img_array, autoLevels=False)
 
+    def clear(self):
+        self.counter = 0
+
+    def pad_or_truncate(self, startList, targetLen):
+        otherList = np.full((targetLen - len(startList)), 255)
+        return np.concatenate([startList, otherList])
