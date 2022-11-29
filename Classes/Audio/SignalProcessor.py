@@ -1,9 +1,9 @@
 from enum import Enum
 
-from scipy.fft import rfft
-from scipy.fftpack import fft, ifft
+from scipy.fft import rfft, ifft
 import numpy as np
 import math
+import scipy
 
 class Window(Enum):
     # Define Status
@@ -17,7 +17,7 @@ class SignalProcessor:
     WINDOW_RECTANGULAR = "Rectangular"
 
     @staticmethod
-    def PreEmphasis(frame):
+    def preEmphasis(frame):
         preEmphSignal = np.empty(len(frame))
 
         coeff = SignalProcessor.computePreEmphasisCoefficient(frame)
@@ -75,8 +75,7 @@ class SignalProcessor:
     @staticmethod
     def computeMagnitudeOfSpectrum(frame):
         fftResult = rfft(frame)
-
-        fftResult = 20 * np.log(np.abs(fftResult))
+        fftResult = 20 * np.log10(np.abs(fftResult))
 
         return fftResult
 
@@ -96,14 +95,175 @@ class SignalProcessor:
 
         # Create new frame
         frame = np.zeros(N)
+        maxSample = 0
         # Fill frame
         for i in range(N):
             if i >= len(signalData):
                 break
             frame[i] = signalData[startPoint + i]
+            # For Normalize values
+            if frame[i] > maxSample:
+                maxSample = frame[i]
 
-        return frame
+        return frame / maxSample
 
+    # calculate energy of frame
+    @staticmethod
+    def getEnergy(frame):
+        # Initial Energy
+        Energy = 0
+
+        for sample in frame:
+            Energy += sample * sample
+
+        # Average
+        Energy /= len(frame)
+        return Energy
+
+    # calculate ZCR for one frame
+    @staticmethod
+    def getZCR(frame):
+        # Init zcr:
+        zcr = 0
+        # compute number of ZCRs
+        for i in range(1, len(frame)):
+            zcr += math.fabs(SignalProcessor.sign(frame[i]) - SignalProcessor.sign(frame[i - 1])) / 2
+
+        # Average
+        zcr /= len(frame)
+        return zcr
+
+    # Sign function
+    @staticmethod
+    def sign(inputValue):
+        return 1 if inputValue >= 0 else -1
+
+    # calculate correlation coefficients for one frame
+    @staticmethod
+    def getCORR(frame):
+        correlations = []
+        for eta in range(len(frame)):
+            corr = 0
+            for i in range(eta, len(frame)):
+                corr += frame[i] * frame[i - eta]
+
+            corr /= (len(frame) - eta + 1)
+            correlations.append(corr)
+
+        correlations = np.array(correlations)
+        return correlations
+
+    # calculate correlation coefficients for one frame
+    @staticmethod
+    def getAMDF(frame):
+        correlations = []
+        for eta in range(len(frame)):
+            amdf = 0
+            for i in range(eta, len(frame)):
+                amdf += math.fabs(frame[i] - frame[i - eta])
+
+            amdf /= (len(frame) - eta + 1)
+            correlations.append(amdf)
+
+        correlations = np.array(correlations)
+        return correlations
+
+
+    @staticmethod
+    def getFormant(frame, fs):
+        # Apply windowing and pre-emphasis on frame
+        frame = SignalProcessor.windowing(frame, Window.HAMMING)
+        frame = SignalProcessor.preEmphasis(frame)
+        # Apply FFT on frame
+        ySpectrum = SignalProcessor.computeMagnitudeOfSpectrum(frame)
+        peaks = scipy.signal.find_peaks(ySpectrum, height=-30, distance=50)
+
+        # Generate x values
+        xSpectrum = [*range(0, int(fs / 2), int((fs / 2) / len(ySpectrum)))]
+        while len(xSpectrum) > len(ySpectrum):
+            xSpectrum.pop()
+        xSpectrum = np.array(xSpectrum)
+
+        return peaks, xSpectrum, ySpectrum
+
+    @staticmethod
+    def getCEPSTRAL(frame):
+        # Apply windowing and pre-emphasis on frame
+        frame = SignalProcessor.windowing(frame, Window.HAMMING)
+        frame = SignalProcessor.preEmphasis(frame)
+        # Apply FFT on frame
+        # cepstrals = np.abs(ifft(ySpectrum))
+
+        fftResult = np.log10(np.absolute(rfft(frame)))
+        cepstrals = np.absolute(ifft(fftResult))
+
+
+        cepstrals = cepstrals[:int(len(cepstrals)/2)]
+        # cepstrals = 20 * np.log10(np.abs(cepstrals))
+        # Generate x values
+        xSpectrum = range(len(cepstrals))
+        xSpectrum = np.array(xSpectrum)
+
+        return xSpectrum, cepstrals
+
+    @staticmethod
+    def getEnergyAndZCRForFirst200Frames(signal):
+        energyList = list()
+        zcrList = list()
+        for i in range(110, 310):
+            frame = SignalProcessor.selectFrame(signal, frameNo=i, N=30, M=10, p_frequency_sampling=16000)
+            energyList.append(SignalProcessor.getEnergy(frame))
+            zcrList.append(SignalProcessor.getZCR(frame))
+
+        xValues = np.array(range(200))
+        return xValues, energyList, zcrList
+
+    @staticmethod
+    def getAutoCorrAndCepstralFor200Frames(signal, fs=16000):
+        autoCorrPeakList = list()
+        cepstralPeakList = list()
+        for i in range(110, 310):
+            frame = SignalProcessor.selectFrame(signal, frameNo=i, N=30, M=10, p_frequency_sampling=fs)
+
+            # Compute pitch with autoCorrelation
+            autoCorr = SignalProcessor.getCORR(frame)
+
+            peaks = scipy.signal.find_peaks(autoCorr, height=0.01, distance=300)
+            if len(peaks[0]) != 0:
+                if peaks[0][0] > 20:
+                    F_pitch = fs / peaks[0][0]
+                    autoCorrPeakList.append(int(F_pitch))
+                elif len(peaks[0]) > 1:
+                    F_pitch = fs / peaks[0][1]
+                    autoCorrPeakList.append(F_pitch)
+                else:
+                    autoCorrPeakList.append(int(150))
+            else:
+                autoCorrPeakList.append(150)
+
+            # if len(peaks[0]) != 0:
+            #     autoCorrPeakList.append(int(fs / peaks[0][0]))
+            # else:
+            #     autoCorrPeakList.append(0)
+
+            # Compute pitch with Cepstral
+            xSpectrum, ySpectrum = SignalProcessor.getCEPSTRAL(frame)
+
+            peaks = scipy.signal.find_peaks(ySpectrum, distance=30, height=0.06)
+            if len(peaks[0]) != 0:
+                if peaks[0][0] > 20:
+                    F_pitch = fs / (peaks[0][0]*2)
+                    cepstralPeakList.append(int(F_pitch))
+                elif len(peaks[0]) > 1:
+                    F_pitch = fs / (peaks[0][1]*2)
+                    cepstralPeakList.append(F_pitch)
+                else:
+                    cepstralPeakList.append(int(150))
+            else:
+                cepstralPeakList.append(150)
+
+        xValues = np.array(range(200))
+        return xValues, autoCorrPeakList, cepstralPeakList
 
 
 

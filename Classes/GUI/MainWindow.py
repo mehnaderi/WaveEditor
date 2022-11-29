@@ -8,7 +8,8 @@ import pyqtgraph as pg
 from Classes.Audio.AudioManager import AudioController, Action
 from Classes.GUI.ProcessorWindow import ProcessorWindow
 from matplotlib import cm
-
+from Classes.Audio.SignalProcessor import SignalProcessor
+import matplotlib.pyplot as plt
 
 # Subclass QMainWindow to customize your application's main window
 class MainWindow(QMainWindow):
@@ -42,9 +43,51 @@ class MainWindow(QMainWindow):
         return widget
 
     def processorWidget(self):
-        button = QPushButton("Process")
+        button = QPushButton("Select Frame")
         button.clicked.connect(self.processorAction)
         return button
+
+    def checkEnergyZCRWidget(self):
+        button = QPushButton("Energy-ZCR 200 frames")
+        button.clicked.connect(self.energyAndZCRAction)
+        return button
+
+    def checkAutoCorrAndCepstralWidget(self):
+        button = QPushButton("AutoCorrelation and Cepstral 200 frames")
+        button.clicked.connect(self.autoCorrAction)
+        return button
+
+    def energyAndZCRAction(self):
+        values, energyList, zcrList = SignalProcessor.getEnergyAndZCRForFirst200Frames(self.audioManager.signalData)
+        plt.figure()
+        plt.plot(values, energyList)
+        plt.title("Energy of 200 frames")
+        plt.xlabel("Frame Number")
+        plt.ylabel("Energy")
+        plt.show()
+
+        plt.figure()
+        plt.plot(values, zcrList)
+        plt.title("ZCR of 200 frames")
+        plt.xlabel("Frame Number")
+        plt.ylabel("ZCR")
+        plt.show()
+
+    def autoCorrAction(self):
+        values, autoCorrList, cepstralList = SignalProcessor.getAutoCorrAndCepstralFor200Frames(self.audioManager.signalData)
+        plt.figure()
+        plt.plot(values, autoCorrList)
+        plt.title("Pitch with AutoCorrelation for 200 frames")
+        plt.xlabel("Frame Number")
+        plt.ylabel("Pitch Value")
+        plt.show()
+
+        plt.figure()
+        plt.plot(values, cepstralList)
+        plt.title("Pitch with Cepstral for 200 frames")
+        plt.xlabel("Frame Number")
+        plt.ylabel("Pitch Value")
+        plt.show()
 
     def processorAction(self):
         self.processorWindow = ProcessorWindow()
@@ -68,7 +111,8 @@ class MainWindow(QMainWindow):
         sidebar.addWidget(self.initBitsPerSampleLabel(), 1)
         sidebar.addWidget(self.getBitsPerSampleLayout(), 1)
         sidebar.addWidget(self.processorWidget())
-        sidebar.addWidget(QWidget(), 1)
+        sidebar.addWidget(self.checkEnergyZCRWidget())
+        sidebar.addWidget(self.checkAutoCorrAndCepstralWidget())
         sidebar.addWidget(QWidget(), 1)
         sidebar.addWidget(self.setVoiceControllers(), 1)
         sidebar.addWidget(self.initTimeLayout(), 1)
@@ -336,16 +380,16 @@ class MainWindow(QMainWindow):
         return label
 
     def getFont(self):
-        self.littleBoldFont = QtGui.QFont()
+        self.littleBoldFont = QtGui.QFont('Segoe UI')
         self.littleBoldFont.setBold(True)
 
     def initBoldFont(self):
-        self.boldFont = QtGui.QFont()
+        self.boldFont = QtGui.QFont('Segoe UI')
         self.boldFont.setBold(True)
         self.boldFont.setPixelSize(16)
 
     def initTimeFont(self):
-        self.timeFont = QtGui.QFont()
+        self.timeFont = QtGui.QFont('Segoe UI')
         self.timeFont.setBold(True)
         self.timeFont.setPixelSize(14)
 
